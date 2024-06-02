@@ -3,7 +3,6 @@ import pandas as pd
 import talib
 import time
 import logging
-import requests
 from config import config
 from requests.exceptions import RequestException
 
@@ -92,7 +91,7 @@ def fetch_usdt_balance(max_retries=5):
 # Function to execute trade
 def execute_trade(symbol, profit_target=0.05):
     amount = fetch_usdt_balance()  # Fetch the total USDT balance
-    if amount > 10:  # Adjust as needed to avoid dust trades
+    if amount > 1:  # Adjust as needed to avoid dust trades
         buy_order = place_order(symbol, 'buy', amount)
         if buy_order:
             buy_price = float(buy_order['info']['fills'][0]['price'])
@@ -101,14 +100,29 @@ def execute_trade(symbol, profit_target=0.05):
     else:
         logging.info("Insufficient USDT balance to execute trade")
 
+# Function to check for newly added coins
+def check_new_coins(existing_symbols, current_time, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            new_coins = binance.fetch_markets()
+            for coin in new_coins:
+                if coin['symbol'] not in existing_symbols and coin['active'] and 'USDT' in coin['quote']:
+                    logging.info(f"New coin detected: {coin['symbol']}")
+                    execute_trade(coin['symbol'], profit_target=0.05)
+            return
+        except (ccxt.RequestTimeout, RequestException) as e:
+            logging.warning(f"Error checking for new coins: {e}. Retrying in {2 ** attempt} seconds...")
+            time.sleep(2 ** attempt)
+    logging.error(f"Failed to check for new coins after {max_retries} attempts.")
+
 # Main loop to monitor the market and execute trades
 def main():
     while True:
         markets = binance.load_markets()
         usdt_pairs = [symbol for symbol in markets if symbol.endswith('/USDT')]
+        existing_symbols = set(usdt_pairs)
         
         # Check for newly added coins every 5 minutes
-        new_coins = binance.fetch_markets()
         current_time = time.time()
 
         for symbol in usdt_pairs:
@@ -117,14 +131,8 @@ def main():
                 df = apply_indicators(df)
                 if identify_buy_signal(df):
                     execute_trade(symbol, profit_target=0.05)  # Adjust profit target as needed
-        
-        for coin in new_coins:
-            if coin['active'] and 'USDT' in coin['quote']:
-                symbol = coin['symbol']
-                if (current_time - coin['info']['listed_at']) <= 300:
-                    logging.info(f"New coin detected: {symbol}")
-                    execute_trade(symbol, profit_target=0.05)
 
+        check_new_coins(existing_symbols, current_time)
         logging.info("Sleeping for 5 minutes before the next check...")
         time.sleep(300)
 
