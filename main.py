@@ -124,45 +124,19 @@ def execute_trade(symbol, profit_target=0.05):
     else:
         logging.info("Insufficient USDT balance to execute trade")
 
-# Function to check for newly added coins
-def check_new_coins(existing_symbols, current_time, max_retries=5):
-    for attempt in range(max_retries):
-        try:
-            new_coins = binance.fetch_markets()
-            for coin in new_coins:
-                if coin['symbol'] not in existing_symbols and coin['active'] and 'USDT' in coin['quote']:
-                    logging.info(f"New coin detected: {coin['symbol']}")
-                    execute_trade(coin['symbol'], profit_target=0.05)
-            return
-        except (ccxt.RequestTimeout, RequestException) as e:
-            logging.warning(f"Error checking for new coins: {e}. Retrying in {2 ** attempt} seconds...")
-            time.sleep(2 ** attempt)
-    logging.error(f"Failed to check for new coins after {max_retries} attempts.")
-
 # Main function to run the trading bot
 def main():
     while True:
         markets = binance.load_markets()
         usdt_pairs = [symbol for symbol in markets if symbol.endswith('/USDT')]
-        existing_symbols = set(usdt_pairs)
 
-        # Check for newly added coins every 5 minutes
-        current_time = time.time()
-        check_new_coins(existing_symbols, current_time)
-
-        # Apply TA-Lib indicators to each pair and decide to buy or sell
+        # Apply TA-Lib indicators to each pair and decide to buy
         for symbol in usdt_pairs:
             df = fetch_market_data(symbol)
             if df is not None:
                 df = apply_indicators(df)
                 if identify_buy_signal(df):
                     execute_trade(symbol, profit_target=0.05)  # Adjust profit target as needed
-                elif identify_sell_signal(df):
-                    usdt_balance = fetch_usdt_balance()  # Fetch the total USDT balance for selling
-                    if usdt_balance > 1:  # Adjust as needed to avoid dust trades
-                        sell_order = place_order(symbol, 'sell', usdt_balance)
-                        if sell_order:
-                            logging.info(f"Sold {usdt_balance} of {symbol} based on sell signal")
 
         logging.info("Sleeping for 5 minutes before the next check...")
         time.sleep(300)
