@@ -2,7 +2,11 @@ import ccxt
 import pandas as pd
 import talib
 import time
+import logging
 from config import config
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Initialize Binance API
 binance = ccxt.binance({
@@ -13,10 +17,14 @@ binance = ccxt.binance({
 
 # Function to fetch market data
 def fetch_market_data(symbol, timeframe='5m', limit=100):
-    ohlcv = binance.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    return df
+    try:
+        ohlcv = binance.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        return df
+    except Exception as e:
+        logging.error(f"Error fetching market data for {symbol}: {e}")
+        return None
 
 # Function to apply technical indicators
 def apply_indicators(df):
@@ -36,23 +44,25 @@ def identify_buy_signal(df):
 def place_order(symbol, side, amount):
     try:
         order = binance.create_order(symbol, 'market', side, amount)
+        logging.info(f"Placed {side} order for {amount} of {symbol}")
         return order
     except Exception as e:
-        print(f"Error placing order: {e}")
+        logging.error(f"Error placing {side} order for {symbol}: {e}")
         return None
 
 # Function to monitor the price and sell at desired profit
 def monitor_and_sell(symbol, buy_price, amount, profit_target=0.05):
     while True:
         df = fetch_market_data(symbol)
-        current_price = df['close'].iloc[-1]
-        print(f"Current price of {symbol}: {current_price}")
+        if df is not None:
+            current_price = df['close'].iloc[-1]
+            logging.info(f"Current price of {symbol}: {current_price}")
 
-        if current_price >= buy_price * (1 + profit_target):
-            sell_order = place_order(symbol, 'sell', amount)
-            if sell_order:
-                print(f"Sold {amount} of {symbol} at {current_price}")
-                break
+            if current_price >= buy_price * (1 + profit_target):
+                sell_order = place_order(symbol, 'sell', amount)
+                if sell_order:
+                    logging.info(f"Sold {amount} of {symbol} at {current_price}")
+                    break
 
         time.sleep(60)  # Check price every 1 minute
 
@@ -61,7 +71,7 @@ def execute_trade(symbol, amount, profit_target=0.05):
     buy_order = place_order(symbol, 'buy', amount)
     if buy_order:
         buy_price = binance.fetch_order(buy_order['id'], symbol)['price']
-        print(f"Bought {amount} of {symbol} at {buy_price}")
+        logging.info(f"Bought {amount} of {symbol} at {buy_price}")
         monitor_and_sell(symbol, buy_price, amount, profit_target)
 
 # Main loop to monitor the market and execute trades
@@ -69,14 +79,16 @@ def main():
     while True:
         markets = binance.load_markets()
         usdt_pairs = [symbol for symbol in markets if symbol.endswith('/USDT')]
-        
+
         for symbol in usdt_pairs:
             df = fetch_market_data(symbol)
-            df = apply_indicators(df)
-            if identify_buy_signal(df):
-                execute_trade(symbol, amount=10)  # Adjust amount as needed
+            if df is not None:
+                df = apply_indicators(df)
+                if identify_buy_signal(df):
+                    execute_trade(symbol, amount=10)  # Adjust amount as needed
 
         # Check for newly added coins every 5 minutes
+        logging.info("Sleeping for 5 minutes before the next check...")
         time.sleep(300)
 
 if __name__ == '__main__':
