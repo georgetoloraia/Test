@@ -67,13 +67,28 @@ def monitor_and_sell(symbol, buy_price, amount, profit_target=0.05):
 
         time.sleep(60)  # Check price every 1 minute
 
+# Function to fetch USDT balance
+def fetch_usdt_balance():
+    try:
+        balance = binance.fetch_balance()
+        usdt_balance = balance['total']['USDT']
+        logging.info(f"USDT Balance: {usdt_balance}")
+        return usdt_balance
+    except Exception as e:
+        logging.error(f"Error fetching USDT balance: {e}")
+        return 0
+
 # Function to execute trade
-def execute_trade(symbol, amount, profit_target=0.05):
-    buy_order = place_order(symbol, 'buy', amount)
-    if buy_order:
-        buy_price = float(buy_order['info']['fills'][0]['price'])
-        logging.info(f"Bought {amount} of {symbol} at {buy_price}")
-        monitor_and_sell(symbol, buy_price, amount, profit_target)
+def execute_trade(symbol, profit_target=0.05):
+    amount = fetch_usdt_balance()  # Fetch the total USDT balance
+    if amount > 10:  # Adjust as needed to avoid dust trades
+        buy_order = place_order(symbol, 'buy', amount)
+        if buy_order:
+            buy_price = float(buy_order['info']['fills'][0]['price'])
+            logging.info(f"Bought {amount} of {symbol} at {buy_price}")
+            monitor_and_sell(symbol, buy_price, amount, profit_target)
+    else:
+        logging.info("Insufficient USDT balance to execute trade")
 
 # Main loop to monitor the market and execute trades
 def main():
@@ -90,14 +105,14 @@ def main():
             if df is not None:
                 df = apply_indicators(df)
                 if identify_buy_signal(df):
-                    execute_trade(symbol, amount=10)  # Adjust amount as needed
+                    execute_trade(symbol, profit_target=0.05)  # Adjust profit target as needed
         
         for coin in new_coins:
             if coin['active'] and 'USDT' in coin['quote']:
                 symbol = coin['symbol']
                 if (current_time - coin['info']['listed_at']) <= 300:
                     logging.info(f"New coin detected: {symbol}")
-                    execute_trade(symbol, amount=10)
+                    execute_trade(symbol, profit_target=0.05)
 
         logging.info("Sleeping for 5 minutes before the next check...")
         time.sleep(300)
