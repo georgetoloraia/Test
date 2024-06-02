@@ -29,14 +29,15 @@ def fetch_market_data(symbol, timeframe='5m', limit=100):
 # Function to apply technical indicators
 def apply_indicators(df):
     df['rsi'] = talib.RSI(df['close'], timeperiod=14)
+    df['macd'], df['macd_signal'], df['macd_hist'] = talib.MACD(df['close'], fastperiod=12, slowperiod=26, signalperiod=9)
     df['sma'] = talib.SMA(df['close'], timeperiod=30)
     df['ema'] = talib.EMA(df['close'], timeperiod=30)
     return df
 
 # Function to identify buy signal
 def identify_buy_signal(df):
-    # Example condition: RSI below 30 and price crossing above EMA
-    if df['rsi'].iloc[-1] < 30 and df['close'].iloc[-1] > df['ema'].iloc[-1]:
+    # Example condition: RSI below 30, MACD crosses above signal line, and price above EMA
+    if df['rsi'].iloc[-1] < 30 and df['macd'].iloc[-1] > df['macd_signal'].iloc[-1] and df['close'].iloc[-1] > df['ema'].iloc[-1]:
         return True
     return False
 
@@ -70,7 +71,7 @@ def monitor_and_sell(symbol, buy_price, amount, profit_target=0.05):
 def execute_trade(symbol, amount, profit_target=0.05):
     buy_order = place_order(symbol, 'buy', amount)
     if buy_order:
-        buy_price = binance.fetch_order(buy_order['id'], symbol)['price']
+        buy_price = float(buy_order['info']['fills'][0]['price'])
         logging.info(f"Bought {amount} of {symbol} at {buy_price}")
         monitor_and_sell(symbol, buy_price, amount, profit_target)
 
@@ -79,6 +80,10 @@ def main():
     while True:
         markets = binance.load_markets()
         usdt_pairs = [symbol for symbol in markets if symbol.endswith('/USDT')]
+        
+        # Check for newly added coins every 5 minutes
+        new_coins = binance.fetch_markets()
+        current_time = time.time()
 
         for symbol in usdt_pairs:
             df = fetch_market_data(symbol)
@@ -86,8 +91,14 @@ def main():
                 df = apply_indicators(df)
                 if identify_buy_signal(df):
                     execute_trade(symbol, amount=10)  # Adjust amount as needed
+        
+        for coin in new_coins:
+            if coin['active'] and 'USDT' in coin['quote']:
+                symbol = coin['symbol']
+                if (current_time - coin['info']['listed_at']) <= 300:
+                    logging.info(f"New coin detected: {symbol}")
+                    execute_trade(symbol, amount=10)
 
-        # Check for newly added coins every 5 minutes
         logging.info("Sleeping for 5 minutes before the next check...")
         time.sleep(300)
 
