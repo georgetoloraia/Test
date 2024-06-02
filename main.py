@@ -45,6 +45,13 @@ def identify_buy_signal(df):
         return True
     return False
 
+# Function to identify sell signal
+def identify_sell_signal(df):
+    # Example condition: RSI above 70 and MACD crosses below the signal line
+    if df['rsi'].iloc[-1] > 70 and df['macd'].iloc[-1] < df['macd_signal'].iloc[-1]:
+        return True
+    return False
+
 # Function to place order with retry mechanism
 def place_order(symbol, side, amount, max_retries=5):
     for attempt in range(max_retries):
@@ -66,13 +73,23 @@ def monitor_and_sell(symbol, buy_price, amount, profit_target=0.05):
     while True:
         df = fetch_market_data(symbol)
         if df is not None:
+            df = apply_indicators(df)  # Apply technical indicators
+
             current_price = df['close'].iloc[-1]
             logging.info(f"Current price of {symbol}: {current_price}")
 
+            # Condition to sell: price has increased by profit_target or a sell signal based on indicators
             if current_price >= buy_price * (1 + profit_target):
                 sell_order = place_order(symbol, 'sell', amount)
                 if sell_order:
                     logging.info(f"Sold {amount} of {symbol} at {current_price}")
+                    break
+
+            # Example sell condition: RSI above 70 and MACD crosses below the signal line
+            if identify_sell_signal(df):
+                sell_order = place_order(symbol, 'sell', amount)
+                if sell_order:
+                    logging.info(f"Sold {amount} of {symbol} at {current_price} based on sell signal")
                     break
 
         time.sleep(60)  # Check price every 1 minute
@@ -118,24 +135,31 @@ def check_new_coins(existing_symbols, current_time, max_retries=5):
             time.sleep(2 ** attempt)
     logging.error(f"Failed to check for new coins after {max_retries} attempts.")
 
-# Main loop to monitor the market and execute trades
+# Main function to run the trading bot
 def main():
     while True:
         markets = binance.load_markets()
         usdt_pairs = [symbol for symbol in markets if symbol.endswith('/USDT')]
         existing_symbols = set(usdt_pairs)
-        
+
         # Check for newly added coins every 5 minutes
         current_time = time.time()
+        check_new_coins(existing_symbols, current_time)
 
+        # Apply TA-Lib indicators to each pair and decide to buy or sell
         for symbol in usdt_pairs:
             df = fetch_market_data(symbol)
             if df is not None:
                 df = apply_indicators(df)
                 if identify_buy_signal(df):
                     execute_trade(symbol, profit_target=0.05)  # Adjust profit target as needed
+                elif identify_sell_signal(df):
+                    amount = fetch_usdt_balance()  # Fetch the total USDT balance for selling
+                    if amount > 1:  # Adjust as needed to avoid dust trades
+                        sell_order = place_order(symbol, 'sell', amount)
+                        if sell_order:
+                            logging.info(f"Sold {amount} of {symbol} based on sell signal")
 
-        check_new_coins(existing_symbols, current_time)
         logging.info("Sleeping for 5 minutes before the next check...")
         time.sleep(300)
 
