@@ -65,6 +65,9 @@ def place_order(symbol, side, amount, max_retries=5):
         except ccxt.InsufficientFunds as e:
             logging.error(f"Insufficient funds to place {side} order for {symbol}: {e}")
             return None
+        except ccxt.MarketClosed as e:
+            logging.error(f"Market is closed for {symbol}: {e}")
+            return None
     logging.error(f"Failed to place {side} order for {symbol} after {max_retries} attempts.")
     return None
 
@@ -110,13 +113,14 @@ def fetch_usdt_balance(max_retries=5):
 
 # Function to execute trade
 def execute_trade(symbol, profit_target=0.05):
-    amount = fetch_usdt_balance()  # Fetch the total USDT balance
-    if amount > 10:  # Adjust as needed to avoid dust trades
-        buy_order = place_order(symbol, 'buy', amount)
+    usdt_balance = fetch_usdt_balance()  # Fetch the total USDT balance
+    if usdt_balance > 1:  # Adjust as needed to avoid dust trades
+        amount_to_trade = usdt_balance * 0.98  # Use 98% of the USDT balance to leave some buffer for fees
+        buy_order = place_order(symbol, 'buy', amount_to_trade)
         if buy_order:
             buy_price = float(buy_order['info']['fills'][0]['price'])
-            logging.info(f"Bought {amount} of {symbol} at {buy_price}")
-            monitor_and_sell(symbol, buy_price, amount, profit_target)
+            logging.info(f"Bought {amount_to_trade} of {symbol} at {buy_price}")
+            monitor_and_sell(symbol, buy_price, amount_to_trade, profit_target)
     else:
         logging.info("Insufficient USDT balance to execute trade")
 
@@ -154,11 +158,11 @@ def main():
                 if identify_buy_signal(df):
                     execute_trade(symbol, profit_target=0.05)  # Adjust profit target as needed
                 elif identify_sell_signal(df):
-                    amount = fetch_usdt_balance()  # Fetch the total USDT balance for selling
-                    if amount > 1:  # Adjust as needed to avoid dust trades
-                        sell_order = place_order(symbol, 'sell', amount)
+                    usdt_balance = fetch_usdt_balance()  # Fetch the total USDT balance for selling
+                    if usdt_balance > 1:  # Adjust as needed to avoid dust trades
+                        sell_order = place_order(symbol, 'sell', usdt_balance)
                         if sell_order:
-                            logging.info(f"Sold {amount} of {symbol} based on sell signal")
+                            logging.info(f"Sold {usdt_balance} of {symbol} based on sell signal")
 
         logging.info("Sleeping for 5 minutes before the next check...")
         time.sleep(300)
