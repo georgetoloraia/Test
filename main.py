@@ -175,7 +175,7 @@ async def trade():
                 if signal:
                     usdt_balance = await get_balance('USDT')
                     if action == 'buy' and usdt_balance > initial_investment:
-                        amount_to_buy = usdt_balance / historical_data['close'].iloc[-1]
+                        amount_to_buy = (usdt_balance * (1 - commission_rate)) / historical_data['close'].iloc[-1]
                         await place_market_order(pair, 'buy', amount_to_buy)
                     elif action == 'sell':
                         asset = pair.split('/')[0]
@@ -189,9 +189,13 @@ async def trade():
             await asyncio.sleep(60)  # Wait for 1 minute before retrying
 
 async def main():
-    await trade()
-    await close_exchange()
-    logger.info("Exchange connection closed.")
+    try:
+        await trade()
+    except Exception as e:
+        logger.error(f"An error occurred in the main trading loop: {e}")
+    finally:
+        await close_exchange()
+        logger.info("Exchange connection closed.")
 
 if __name__ == "__main__":
     asyncio.run(main())
