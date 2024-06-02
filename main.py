@@ -55,6 +55,9 @@ def place_order(symbol, side, amount, max_retries=5):
         except (ccxt.RequestTimeout, RequestException) as e:
             logging.warning(f"Error placing {side} order for {symbol}: {e}. Retrying in {2 ** attempt} seconds...")
             time.sleep(2 ** attempt)
+        except ccxt.InsufficientFunds as e:
+            logging.error(f"Insufficient funds to place {side} order for {symbol}: {e}")
+            return None
     logging.error(f"Failed to place {side} order for {symbol} after {max_retries} attempts.")
     return None
 
@@ -91,7 +94,7 @@ def fetch_usdt_balance(max_retries=5):
 # Function to execute trade
 def execute_trade(symbol, profit_target=0.05):
     amount = fetch_usdt_balance()  # Fetch the total USDT balance
-    if amount > 1:  # Adjust as needed to avoid dust trades
+    if amount > 10:  # Adjust as needed to avoid dust trades
         buy_order = place_order(symbol, 'buy', amount)
         if buy_order:
             buy_price = float(buy_order['info']['fills'][0]['price'])
