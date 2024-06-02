@@ -3,7 +3,9 @@ import pandas as pd
 import talib
 import time
 import logging
+import requests
 from config import config
+from requests.exceptions import RequestException
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -15,16 +17,19 @@ binance = ccxt.binance({
     'enableRateLimit': True,
 })
 
-# Function to fetch market data
-def fetch_market_data(symbol, timeframe='5m', limit=100):
-    try:
-        ohlcv = binance.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        return df
-    except Exception as e:
-        logging.error(f"Error fetching market data for {symbol}: {e}")
-        return None
+# Function to fetch market data with retry mechanism
+def fetch_market_data(symbol, timeframe='5m', limit=100, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            ohlcv = binance.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            return df
+        except (ccxt.RequestTimeout, RequestException) as e:
+            logging.warning(f"Error fetching market data for {symbol}: {e}. Retrying in {2 ** attempt} seconds...")
+            time.sleep(2 ** attempt)
+    logging.error(f"Failed to fetch market data for {symbol} after {max_retries} attempts.")
+    return None
 
 # Function to apply technical indicators
 def apply_indicators(df):
@@ -41,15 +46,18 @@ def identify_buy_signal(df):
         return True
     return False
 
-# Function to place order
-def place_order(symbol, side, amount):
-    try:
-        order = binance.create_order(symbol, 'market', side, amount)
-        logging.info(f"Placed {side} order for {amount} of {symbol}")
-        return order
-    except Exception as e:
-        logging.error(f"Error placing {side} order for {symbol}: {e}")
-        return None
+# Function to place order with retry mechanism
+def place_order(symbol, side, amount, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            order = binance.create_order(symbol, 'market', side, amount)
+            logging.info(f"Placed {side} order for {amount} of {symbol}")
+            return order
+        except (ccxt.RequestTimeout, RequestException) as e:
+            logging.warning(f"Error placing {side} order for {symbol}: {e}. Retrying in {2 ** attempt} seconds...")
+            time.sleep(2 ** attempt)
+    logging.error(f"Failed to place {side} order for {symbol} after {max_retries} attempts.")
+    return None
 
 # Function to monitor the price and sell at desired profit
 def monitor_and_sell(symbol, buy_price, amount, profit_target=0.05):
@@ -67,16 +75,19 @@ def monitor_and_sell(symbol, buy_price, amount, profit_target=0.05):
 
         time.sleep(60)  # Check price every 1 minute
 
-# Function to fetch USDT balance
-def fetch_usdt_balance():
-    try:
-        balance = binance.fetch_balance()
-        usdt_balance = balance['total']['USDT']
-        logging.info(f"USDT Balance: {usdt_balance}")
-        return usdt_balance
-    except Exception as e:
-        logging.error(f"Error fetching USDT balance: {e}")
-        return 0
+# Function to fetch USDT balance with retry mechanism
+def fetch_usdt_balance(max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            balance = binance.fetch_balance()
+            usdt_balance = balance['total']['USDT']
+            logging.info(f"USDT Balance: {usdt_balance}")
+            return usdt_balance
+        except (ccxt.RequestTimeout, RequestException) as e:
+            logging.warning(f"Error fetching USDT balance: {e}. Retrying in {2 ** attempt} seconds...")
+            time.sleep(2 ** attempt)
+    logging.error(f"Failed to fetch USDT balance after {max_retries} attempts.")
+    return 0
 
 # Function to execute trade
 def execute_trade(symbol, profit_target=0.05):
