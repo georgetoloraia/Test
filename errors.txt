@@ -1,6 +1,37 @@
+2024-06-02 22:18:40,803 - INFO - New coin detected: BTC/USDT:USDT
+2024-06-02 22:18:41,131 - INFO - USDT Balance: 7.05619291
 Traceback (most recent call last):
-  File "/home/gio/Desktop/Test/main.py", line 132, in <module>
+  File "/home/gio/.local/lib/python3.10/site-packages/ccxt/base/exchange.py", line 645, in fetch
+    response.raise_for_status()
+  File "/usr/lib/python3/dist-packages/requests/models.py", line 943, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 400 Client Error: Bad Request for url: https://fapi.binance.com/fapi/v1/order
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/gio/Desktop/Test/main.py", line 140, in <module>
     main()
-  File "/home/gio/Desktop/Test/main.py", line 124, in main
-    if (current_time - coin['info']['listed_at']) <= 300:
-KeyError: 'listed_at'
+  File "/home/gio/Desktop/Test/main.py", line 135, in main
+    check_new_coins(existing_symbols, current_time)
+  File "/home/gio/Desktop/Test/main.py", line 111, in check_new_coins
+    execute_trade(coin['symbol'], profit_target=0.05)
+  File "/home/gio/Desktop/Test/main.py", line 95, in execute_trade
+    buy_order = place_order(symbol, 'buy', amount)
+  File "/home/gio/Desktop/Test/main.py", line 52, in place_order
+    order = binance.create_order(symbol, 'market', side, amount)
+  File "/home/gio/.local/lib/python3.10/site-packages/ccxt/binance.py", line 5563, in create_order
+    response = self.fapiPrivatePostOrder(request)
+  File "/home/gio/.local/lib/python3.10/site-packages/ccxt/base/types.py", line 35, in unbound_method
+    return _self.request(self.path, self.api, self.method, params, config=self.config)
+  File "/home/gio/.local/lib/python3.10/site-packages/ccxt/binance.py", line 10323, in request
+    response = self.fetch2(path, api, method, params, headers, body, config)
+  File "/home/gio/.local/lib/python3.10/site-packages/ccxt/base/exchange.py", line 3693, in fetch2
+    return self.fetch(request['url'], request['method'], request['headers'], request['body'])
+  File "/home/gio/.local/lib/python3.10/site-packages/ccxt/base/exchange.py", line 661, in fetch
+    skip_further_error_handling = self.handle_errors(http_status_code, http_status_text, url, method, headers, http_response, json_response, request_headers, request_body)
+  File "/home/gio/.local/lib/python3.10/site-packages/ccxt/binance.py", line 10290, in handle_errors
+    self.throw_exactly_matched_exception(self.get_exceptions_by_url(url, 'exact'), error, feedback)
+  File "/home/gio/.local/lib/python3.10/site-packages/ccxt/base/exchange.py", line 4078, in throw_exactly_matched_exception
+    raise exact[string](message)
+ccxt.base.errors.InsufficientFunds: binance {"code":-2019,"msg":"Margin is insufficient."}
