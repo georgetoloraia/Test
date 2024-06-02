@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/home/gio/Desktop/Test/main.py", line 132, in <module>
+    main()
+  File "/home/gio/Desktop/Test/main.py", line 124, in main
+    if (current_time - coin['info']['listed_at']) <= 300:
+KeyError: 'listed_at'
