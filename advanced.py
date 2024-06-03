@@ -19,7 +19,7 @@ exchange = ccxt.binance({
 
 # Parameters
 quote_currency = 'USDT'
-initial_investment = 10.0  # USD
+initial_investment = 5.0  # USD
 rsi_period = 14  # User's RSI period
 commission_rate = 0.001  # 0.1%
 stop_loss_percentage = 0.05  # 5% stop loss
@@ -48,7 +48,7 @@ def preprocess_data(df):
     return df
 
 # Fetch historical prices
-async def fetch_historical_prices(pair, timeframe='1m', limit=100):
+async def fetch_historical_prices(pair, timeframe='15m', limit=100):
     try:
         ohlcv = await exchange.fetch_ohlcv(pair, timeframe=timeframe, limit=limit)
         if ohlcv is None or len(ohlcv) == 0:
