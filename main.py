@@ -9,6 +9,12 @@ from config import config
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
+# Add file handler to logger
+file_handler = logging.FileHandler('results.txt')
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+logger.addHandler(file_handler)
+
 # Initialize Binance exchange connection
 exchange = ccxt.binance({
     'apiKey': config.API_KEY,
@@ -19,9 +25,11 @@ exchange = ccxt.binance({
 
 # Parameters
 quote_currency = 'USDT'
-initial_investment = 5.0  # USD
+initial_investment = 10.0  # USD
 rsi_period = 14  # User's RSI period
 commission_rate = 0.001  # 0.1%
+stop_loss_percentage = 0.05  # 5% stop loss
+take_profit_percentage = 0.1  # 10% take profit
 
 # Fetch all tradeable pairs
 async def get_tradeable_pairs(quote_currency):
@@ -46,7 +54,7 @@ def preprocess_data(df):
     return df
 
 # Fetch historical prices
-async def fetch_historical_prices(pair, timeframe='1m', limit=100):
+async def fetch_historical_prices(pair, timeframe='15m', limit=100):
     try:
         ohlcv = await exchange.fetch_ohlcv(pair, timeframe=timeframe, limit=limit)
         if ohlcv is None or len(ohlcv) == 0:
@@ -73,39 +81,35 @@ async def fetch_historical_prices(pair, timeframe='1m', limit=100):
         logger.error(f"Error fetching historical prices for {pair}: {e}")
         return pd.DataFrame()
 
-# Evaluate trading signals
-def evaluate_trading_signals(df):
+# Simplified evaluate trading signals
+def simplified_evaluate_trading_signals(df):
     if df.empty:
         logger.info("DataFrame is empty.")
         return False, None
 
     latest = df.iloc[-1]
+
+    # Simplified Buy conditions
     buy_conditions = [
-        latest['close'] > latest['ema'],
-        latest['close'] > latest['wma'],
-        latest['trix'] > 0,
-        latest['close'] < latest['lower_band'],
-        latest['rsi'] < 30,
-        latest['macd'] > latest['macd_signal'],
-        latest['cci'] < -100,
-        latest['slowk'] < 20 and latest['slowd'] < 20
+        latest['close'] > latest['ema'],  # Price above EMA
+        latest['trix'] > 0,  # TRIX positive
+        latest['rsi'] < 40,  # RSI below 40 (less strict oversold condition)
+        latest['macd'] > latest['macd_signal']  # MACD above signal line
     ]
+
+    # Simplified Sell conditions
     sell_conditions = [
-        latest['close'] < latest['ema'],
-        latest['close'] < latest['wma'],
-        latest['trix'] < 0,
-        latest['close'] > latest['upper_band'],
-        latest['rsi'] > 70,
-        latest['macd'] < latest['macd_signal'],
-        latest['cci'] > 100,
-        latest['slowk'] > 80 and latest['slowd'] > 80
+        latest['close'] < latest['ema'],  # Price below EMA
+        latest['trix'] < 0,  # TRIX negative
+        latest['rsi'] > 60,  # RSI above 60 (less strict overbought condition)
+        latest['macd'] < latest['macd_signal']  # MACD below signal line
     ]
 
     if all(buy_conditions):
-        logger.info(f"Buy signal conditions met: {dict(zip(['ema', 'wma', 'trix', 'close < Lower Band', 'rsi', 'macd', 'cci', 'stoch'], buy_conditions))}")
+        logger.info(f"Simplified Buy signal conditions met.")
         return True, 'buy'
     elif all(sell_conditions):
-        logger.info(f"Sell signal conditions met: {dict(zip(['ema', 'wma', 'trix', 'close > Upper Band', 'rsi', 'macd', 'cci', 'stoch'], sell_conditions))}")
+        logger.info(f"Simplified Sell signal conditions met.")
         return True, 'sell'
     return False, None
 
@@ -163,20 +167,34 @@ async def convert_to_usdt(pair):
         logger.error(f"An error occurred converting {pair} to USDT: {e}")
     return None
 
-# Main trading logic
-async def trade():
+# Main trading logic with stop-loss and take-profit
+async def advanced_trade():
     pairs = await get_tradeable_pairs('USDT')
     while True:
         try:
             for pair in pairs:
                 logger.info(f"Processing pair: {pair}")
                 historical_data = await fetch_historical_prices(pair)
-                signal, action = evaluate_trading_signals(historical_data)
+                signal, action = simplified_evaluate_trading_signals(historical_data)
                 if signal:
                     usdt_balance = await get_balance('USDT')
                     if action == 'buy' and usdt_balance > initial_investment:
                         amount_to_buy = (usdt_balance * (1 - commission_rate)) / historical_data['close'].iloc[-1]
-                        await place_market_order(pair, 'buy', amount_to_buy)
+                        buy_order = await place_market_order(pair, 'buy', amount_to_buy)
+                        if buy_order:
+                            buy_price = await get_current_price(pair)
+                            # Monitor position for stop-loss or take-profit
+                            while True:
+                                current_price = await get_current_price(pair)
+                                if current_price <= buy_price * (1 - stop_loss_percentage):
+                                    logger.info(f"Stop-loss triggered for {pair} at {current_price}")
+                                    await place_market_order(pair, 'sell', amount_to_buy)
+                                    break
+                                elif current_price >= buy_price * (1 + take_profit_percentage):
+                                    logger.info(f"Take-profit triggered for {pair} at {current_price}")
+                                    await place_market_order(pair, 'sell', amount_to_buy)
+                                    break
+                                await asyncio.sleep(60)  # Check every minute
                     elif action == 'sell':
                         asset = pair.split('/')[0]
                         asset_balance = await get_balance(asset)
@@ -190,7 +208,7 @@ async def trade():
 
 async def main():
     try:
-        await trade()
+        await advanced_trade()
     except Exception as e:
         logger.error(f"An error occurred in the main trading loop: {e}")
     finally:
