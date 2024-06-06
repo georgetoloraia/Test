@@ -33,7 +33,7 @@ bot = Bot(token=telegram_token)
 
 # Parameters
 quote_currency = 'USDT'
-initial_investment = 10.0  # USD
+initial_investment = 5.0  # USD
 rsi_period = 14  # User's RSI period
 commission_rate = 0.001  # 0.1%
 stop_loss_percentage = 0.05  # 5% stop loss
@@ -68,67 +68,68 @@ def preprocess_data(df):
     df = df.ffill().bfill()
     return df
 
-# Fetch historical prices
-async def fetch_historical_prices(pair, timeframe='15m', limit=100):
+# Fetch historical prices for multiple timeframes
+async def fetch_historical_prices(pair, timeframes=['1m', '5m'], limit=100):
+    data = {}
     try:
-        ohlcv = await exchange.fetch_ohlcv(pair, timeframe=timeframe, limit=limit)
-        if ohlcv is None or len(ohlcv) == 0:
-            logger.info(f"No data returned for {pair}.")
-            return pd.DataFrame()
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df.set_index('timestamp', inplace=True)
-        df = preprocess_data(df)
-
-        df['ema'] = talib.EMA(df['close'], timeperiod=14)
-        df['wma'] = talib.WMA(df['close'], timeperiod=14)
-        df['upper_band'], df['middle_band'], df['lower_band'] = talib.BBANDS(df['close'], timeperiod=20, nbdevup=2, nbdevdn=2)
-        df['trix'] = talib.TRIX(df['close'], timeperiod=15)
-        df['rsi'] = talib.RSI(df['close'], timeperiod=14)
-        df['macd'], df['macd_signal'], df['macd_hist'] = talib.MACD(df['close'], fastperiod=12, slowperiod=26, signalperiod=9)
-        df['atr'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=14)
-        df['slowk'], df['slowd'] = talib.STOCH(df['high'], df['low'], df['close'], fastk_period=14, slowk_period=3, slowk_matype=0, slowd_period=3, slowd_matype=0)
-        df['cci'] = talib.CCI(df['high'], df['low'], df['close'], timeperiod=14)
-        df['obv'] = talib.OBV(df['close'], df['volume'])
-
-        return df
+        for timeframe in timeframes:
+            ohlcv = await exchange.fetch_ohlcv(pair, timeframe=timeframe, limit=limit)
+            if ohlcv is None or len(ohlcv) == 0:
+                logger.info(f"No data returned for {pair} in {timeframe} timeframe.")
+                continue
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df.set_index('timestamp', inplace=True)
+            df = preprocess_data(df)
+            df['ema'] = talib.EMA(df['close'], timeperiod=14)
+            df['wma'] = talib.WMA(df['close'], timeperiod=14)
+            df['upper_band'], df['middle_band'], df['lower_band'] = talib.BBANDS(df['close'], timeperiod=20, nbdevup=2, nbdevdn=2)
+            df['trix'] = talib.TRIX(df['close'], timeperiod=15)
+            df['rsi'] = talib.RSI(df['close'], timeperiod=14)
+            df['macd'], df['macd_signal'], df['macd_hist'] = talib.MACD(df['close'], fastperiod=12, slowperiod=26, signalperiod=9)
+            df['atr'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=14)
+            df['slowk'], df['slowd'] = talib.STOCH(df['high'], df['low'], df['close'], fastk_period=14, slowk_period=3, slowk_matype=0, slowd_period=3, slowd_matype=0)
+            df['cci'] = talib.CCI(df['high'], df['low'], df['close'], timeperiod=14)
+            df['obv'] = talib.OBV(df['close'], df['volume'])
+            data[timeframe] = df
+        return data
     except Exception as e:
         logger.error(f"Error fetching historical prices for {pair}: {e}")
-        return pd.DataFrame()
+        return data
 
 # Simplified evaluate trading signals
-def simplified_evaluate_trading_signals(df):
-    if df.empty:
-        logger.info("DataFrame is empty.")
-        return False, None
+def simplified_evaluate_trading_signals(data):
+    signals = {}
+    for timeframe, df in data.items():
+        if df.empty:
+            logger.info(f"DataFrame is empty for {timeframe} timeframe.")
+            continue
 
-    latest = df.iloc[-1]
+        latest = df.iloc[-1]
 
-    # Simplified Buy conditions
-    buy_conditions = [
-        latest['close'] > latest['ema'],  # Price above EMA
-        latest['trix'] > 0,  # TRIX positive
-        latest['rsi'] < 40,  # RSI below 40 (less strict oversold condition)
-        latest['macd'] > latest['macd_signal']  # MACD above signal line
-    ]
+        # Simplified Buy conditions
+        buy_conditions = [
+            latest['close'] > latest['ema'],  # Price above EMA
+            latest['trix'] > 0,  # TRIX positive
+            latest['rsi'] < 40,  # RSI below 40 (less strict oversold condition)
+            latest['macd'] > latest['macd_signal']  # MACD above signal line
+        ]
 
-    # Simplified Sell conditions
-    sell_conditions = [
-        latest['close'] < latest['ema'],  # Price below EMA
-        latest['trix'] < 0,  # TRIX negative
-        latest['rsi'] > 60,  # RSI above 60 (less strict overbought condition)
-        latest['macd'] < latest['macd_signal']  # MACD below signal line
-    ]
+        # Simplified Sell conditions
+        sell_conditions = [
+            latest['close'] < latest['ema'],  # Price below EMA
+            latest['trix'] < 0,  # TRIX negative
+            latest['rsi'] > 60,  # RSI above 60 (less strict overbought condition)
+            latest['macd'] < latest['macd_signal']  # MACD below signal line
+        ]
 
-    if all(buy_conditions):
-        logger.info(f"Simplified Buy signal conditions met.")
-        send_telegram_message(f"Simplified Buy signal conditions met for {df.name}.")
-        return True, 'buy'
-    elif all(sell_conditions):
-        logger.info(f"Simplified Sell signal conditions met.")
-        send_telegram_message(f"Simplified Sell signal conditions met for {df.name}.")
-        return True, 'sell'
-    return False, None
+        if all(buy_conditions):
+            logger.info(f"Simplified Buy signal conditions met in {timeframe} timeframe.")
+            signals[timeframe] = 'buy'
+        elif all(sell_conditions):
+            logger.info(f"Simplified Sell signal conditions met in {timeframe} timeframe.")
+            signals[timeframe] = 'sell'
+    return signals
 
 # Get balance
 async def get_balance(currency):
@@ -195,11 +196,20 @@ async def advanced_trade():
                 logger.info(f"Processing pair: {pair}")
                 historical_data = await fetch_historical_prices(pair)
                 historical_data.name = pair  # Add the pair name to the DataFrame for reference
-                signal, action = simplified_evaluate_trading_signals(historical_data)
-                if signal:
+                signals = simplified_evaluate_trading_signals(historical_data)
+                
+                # Determine the final signal based on all timeframes
+                if 'buy' in signals.values():
+                    final_action = 'buy'
+                elif 'sell' in signals.values():
+                    final_action = 'sell'
+                else:
+                    final_action = None
+                
+                if final_action:
                     usdt_balance = await get_balance('USDT')
-                    if action == 'buy' and usdt_balance > initial_investment:
-                        amount_to_buy = (usdt_balance * (1 - commission_rate)) / historical_data['close'].iloc[-1]
+                    if final_action == 'buy' and usdt_balance > initial_investment:
+                        amount_to_buy = (usdt_balance * (1 - commission_rate)) / historical_data['1m']['close'].iloc[-1]
                         buy_order = await place_market_order(pair, 'buy', amount_to_buy)
                         if buy_order:
                             buy_price = await get_current_price(pair)
@@ -217,7 +227,7 @@ async def advanced_trade():
                                     send_telegram_message(f"Take-profit triggered for {pair} at {current_price}.")
                                     break
                                 await asyncio.sleep(60)  # Check every minute
-                    elif action == 'sell':
+                    elif final_action == 'sell':
                         asset = pair.split('/')[0]
                         asset_balance = await get_balance(asset)
                         if asset_balance > 0:
